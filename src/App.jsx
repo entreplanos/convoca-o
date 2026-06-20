@@ -135,21 +135,36 @@ const partKey = (code, slug) => `s:${code}:p:${slug}`;
 const partPrefix = (code) => `s:${code}:p:`;
 
 /* ---- memoria local: lembrar a ultima mesa (so no app publicado) ---- */
-const LAST_KEY = "convocacao:last";
-const recallSession = () => {
+const SESSIONS_KEY = "convocacao:mesas";
+const recallSessions = () => {
   try {
-    const raw = window.localStorage.getItem(LAST_KEY);
-    return raw ? JSON.parse(raw) : null;
+    const raw = window.localStorage.getItem(SESSIONS_KEY);
+    if (raw) return JSON.parse(raw);
+    const old = window.localStorage.getItem("convocacao:last");
+    if (old) { const o = JSON.parse(old); return o ? [{ ...o, lastSeen: Date.now() }] : []; }
+    return [];
   } catch {
-    return null;
+    return [];
   }
 };
+const saveSessions = (list) => {
+  try { window.localStorage.setItem(SESSIONS_KEY, JSON.stringify(list)); } catch {}
+};
 const rememberSession = (data) => {
-  try { window.localStorage.setItem(LAST_KEY, JSON.stringify(data)); } catch {}
+  let list = recallSessions().filter((x) => !(x.code === data.code && slugify(x.name) === slugify(data.name)));
+  list.unshift({ ...data, lastSeen: Date.now() });
+  list = list.slice(0, 24);
+  saveSessions(list);
+  return list;
 };
-const forgetSession = () => {
-  try { window.localStorage.removeItem(LAST_KEY); } catch {}
+const forgetSession = (code, name) => {
+  const list = recallSessions().filter((x) => !(x.code === code && (name == null || x.name === name)));
+  saveSessions(list);
+  return list;
 };
+
+/* ---- chave do painel de admin (definida em VITE_ADMIN_KEY) ---- */
+const ADMIN_KEY = (() => { try { return import.meta.env.VITE_ADMIN_KEY || ""; } catch { return ""; } })();
 
 /* ============================ Componentes base ============================ */
 function Brand({ small }) {
@@ -383,7 +398,9 @@ function VoteRow({ slot, value, onChange }) {
 
 /* ============================ App ============================ */
 export default function App() {
-  const [screen, setScreen] = useState("home"); // home | create | join | respond | results
+  const [screen, setScreen] = useState(() =>
+    typeof window !== "undefined" && window.location.hash === "#admin" ? "admin" : "home"
+  ); // home | create | join | respond | results | admin
   const [me, setMe] = useState(null); // { slug, name }
   const [code, setCode] = useState("");
   const [meta, setMeta] = useState(null); // sessão atual
@@ -408,7 +425,12 @@ export default function App() {
   const [saved, setSaved] = useState(false);
   const [copied, setCopied] = useState(false);
   const [degraded, setDegraded] = useState(false);
-  const [recalled, setRecalled] = useState(() => recallSession());
+  const [myMesas, setMyMesas] = useState(() => recallSessions());
+  const [mesaStatus, setMesaStatus] = useState({});
+  const [adminUnlocked, setAdminUnlocked] = useState(ADMIN_KEY === "");
+  const [adminInput, setAdminInput] = useState("");
+  const [stats, setStats] = useState(null);
+  const [statsLoading, setStatsLoading] = useState(false);
   const syncDegraded = () => setDegraded(store.isDegraded());
 
   const pollRef = useRef(null);
@@ -440,6 +462,16 @@ export default function App() {
       return () => clearInterval(pollRef.current);
     }
   }, [screen, code, refreshResults]);
+
+  useEffect(() => {
+    if (screen === "admin" && adminUnlocked && !stats && !statsLoading) loadStats();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen, adminUnlocked]);
+
+  useEffect(() => {
+    if (screen === "home" && myMesas.length) loadMesaStatuses(myMesas);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen]);
 
   /* ---- ações ---- */
   const createSession = async () => {
@@ -477,8 +509,7 @@ export default function App() {
     setCode(c);
     setMeta(m);
     setMe({ slug: m.gmSlug, name: m.gm });
-    rememberSession({ code: c, name: m.gm, isGM: true, campaign: m.campaign });
-    setRecalled({ code: c, name: m.gm, isGM: true, campaign: m.campaign });
+    setMyMesas(rememberSession({ code: c, name: m.gm, isGM: true, campaign: m.campaign }));
     setVotes({});
     setSaved(false);
     await loadParticipants(c);
@@ -503,8 +534,7 @@ export default function App() {
     setCode(c);
     setMeta(m);
     setMe({ slug, name: joinName.trim() });
-    rememberSession({ code: c, name: joinName.trim(), isGM: slug === m.gmSlug, campaign: m.campaign });
-    setRecalled({ code: c, name: joinName.trim(), isGM: slug === m.gmSlug, campaign: m.campaign });
+    setMyMesas(rememberSession({ code: c, name: joinName.trim(), isGM: slug === m.gmSlug, campaign: m.campaign }));
     setVotes(existing?.votes || {});
     setSaved(!!existing);
     await loadParticipants(c);
@@ -518,8 +548,7 @@ export default function App() {
     syncDegraded();
     if (ok) {
       setSaved(true);
-      rememberSession({ code, name: me.name, isGM, campaign: meta.campaign });
-      setRecalled({ code, name: me.name, isGM, campaign: meta.campaign });
+      setMyMesas(rememberSession({ code, name: me.name, isGM, campaign: meta.campaign }));
       await loadParticipants(code);
       setScreen("results");
     } else {
@@ -528,10 +557,84 @@ export default function App() {
   };
 
   const confirmSlot = async (slotId) => {
-    const updated = { ...meta, confirmedSlot: meta.confirmedSlot === slotId ? null : slotId };
+    const turnOn = meta.confirmedSlot !== slotId;
+    const updated = { ...meta, confirmedSlot: turnOn ? slotId : null, confirmedAt: turnOn ? Date.now() : null };
     await store.set(metaKey(code), updated);
     syncDegraded();
     setMeta(updated);
+  };
+
+  const fmtDuration = (ms) => {
+    if (!ms || ms < 0) return "—";
+    const min = ms / 60000;
+    if (min < 60) return `${Math.round(min)} min`;
+    const h = min / 60;
+    if (h < 48) return `${h.toFixed(1)} h`;
+    return `${(h / 24).toFixed(1)} dias`;
+  };
+
+  const loadStats = async () => {
+    setStatsLoading(true);
+    const keys = await store.list("s:");
+    syncDegraded();
+    const metaKeys = keys.filter((k) => k.endsWith(":meta"));
+    const respCount = {};
+    keys.forEach((k) => {
+      const mm = k.match(/^s:([^:]+):p:/);
+      if (mm) respCount[mm[1]] = (respCount[mm[1]] || 0) + 1;
+    });
+    const metas = [];
+    for (const k of metaKeys) {
+      const m = await store.get(k);
+      if (m) metas.push(m);
+    }
+    const total = metas.length;
+    const closedMetas = metas.filter((m) => m.confirmedSlot);
+    const closed = closedMetas.length;
+    const timed = closedMetas.filter((m) => m.confirmedAt && m.createdAt);
+    const avgCloseMs = timed.length ? timed.reduce((a, m) => a + (m.confirmedAt - m.createdAt), 0) / timed.length : 0;
+    const withExpected = metas.filter((m) => m.expectedCount > 0);
+    const avgExpected = withExpected.length ? withExpected.reduce((a, m) => a + m.expectedCount, 0) / withExpected.length : 0;
+    const avgResponses = total ? metas.reduce((a, m) => a + (respCount[m.code] || 0), 0) / total : 0;
+    const avgSlots = total ? metas.reduce((a, m) => a + ((m.slots && m.slots.length) || 0), 0) / total : 0;
+    const now = Date.now();
+    const last7 = metas.filter((m) => m.createdAt && now - m.createdAt < 7 * 86400000).length;
+    const last30 = metas.filter((m) => m.createdAt && now - m.createdAt < 30 * 86400000).length;
+    const days = [];
+    for (let i = 13; i >= 0; i--) {
+      const d = new Date(now - i * 86400000);
+      const key = isoOf(d);
+      const count = metas.filter((m) => m.createdAt && isoOf(new Date(m.createdAt)) === key).length;
+      days.push({ key, count, label: d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }) });
+    }
+    setStats({ total, closed, closeRate: total ? closed / total : 0, avgCloseMs, timedCount: timed.length, avgExpected, avgResponses, avgSlots, last7, last30, days });
+    setStatsLoading(false);
+  };
+
+  const loadMesaStatuses = async (list) => {
+    const out = {};
+    for (const r of list) {
+      const m = await store.get(metaKey(r.code));
+      if (!m) { out[r.code] = { gone: true }; continue; }
+      const keys = await store.list(partPrefix(r.code));
+      const responded = keys.length;
+      let label, color;
+      if (m.confirmedSlot) {
+        const slot = (m.slots || []).find((s) => s.id === m.confirmedSlot);
+        label = slot ? `Marcada: ${slotLabel(slot)}` : "Data marcada";
+        color = C.yes;
+      } else if (m.expectedCount > 0) {
+        const pending = Math.max(0, m.expectedCount - responded);
+        label = pending > 0 ? `${responded} de ${m.expectedCount} responderam` : "Todos responderam";
+        color = pending > 0 ? C.muted : C.gold;
+      } else {
+        label = `${responded} resposta${responded === 1 ? "" : "s"}`;
+        color = C.muted;
+      }
+      out[r.code] = { label, color };
+    }
+    syncDegraded();
+    setMesaStatus(out);
   };
 
   const copyCode = () => {
@@ -632,30 +735,37 @@ export default function App() {
           Os sinais de fogo estão acesos: o mestre convoca, e — como Gondor — a mesa responderá ao chamado. Resta o verdadeiro inimigo, que não é dragão nenhum: achar uma data livre na agenda de todos.
         </p>
 
-        {recalled && (
-          <div style={{ background: C.inkSoft, border: `1px solid ${C.gold}`, borderRadius: 16, padding: 18, marginBottom: 14 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
-              <Flame size={18} style={{ color: C.gold }} />
+        {myMesas.length > 0 && (
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <Flame size={16} style={{ color: C.gold }} />
               <span style={{ fontFamily: "Inter", fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", color: C.gold }}>
-                {recalled.isGM ? "Sua mesa" : "Mesa que voce atendeu"}
+                Suas mesas
               </span>
             </div>
-            <div style={{ fontFamily: "Cinzel, serif", color: C.text, fontSize: 18, marginBottom: 2 }}>
-              {recalled.campaign}
+            <div style={{ display: "grid", gap: 8 }}>
+              {myMesas.map((r) => {
+                const st = mesaStatus[r.code];
+                const gone = st && st.gone;
+                return (
+                  <div key={r.code + r.name} style={{ background: C.inkSoft, border: `1px solid ${C.inkLine}`, borderRadius: 12, padding: "12px 14px", display: "flex", alignItems: "center", gap: 10 }}>
+                    <button
+                      onClick={() => (gone ? setMyMesas(forgetSession(r.code, r.name)) : resumeSession(r))}
+                      style={{ flex: 1, textAlign: "left", cursor: "pointer", background: "transparent", padding: 0 }}>
+                      <div style={{ fontFamily: "Cinzel, serif", color: C.text, fontSize: 16 }}>
+                        {r.isGM ? "♛ " : ""}{r.campaign}
+                      </div>
+                      <div style={{ fontFamily: "Spectral, serif", fontSize: 13, color: gone ? C.no : st ? st.color : C.muted, marginTop: 2 }}>
+                        {st ? (gone ? "mesa removida — toque para limpar" : st.label) : "carregando…"}
+                        <span style={{ color: "#5d5470" }}>{"  ·  código "}{r.code}</span>
+                      </div>
+                    </button>
+                    <button onClick={() => setMyMesas(forgetSession(r.code, r.name))} title="esquecer"
+                      style={{ color: C.muted, fontSize: 20, cursor: "pointer", padding: "0 4px", lineHeight: 1 }}>×</button>
+                  </div>
+                );
+              })}
             </div>
-            <div style={{ fontFamily: "Spectral, serif", color: C.muted, fontSize: 13, marginBottom: 14 }}>
-              codigo <strong style={{ color: C.gold, letterSpacing: "0.15em" }}>{recalled.code}</strong>
-            </div>
-            {error && (
-              <p style={{ color: C.no, fontFamily: "Spectral, serif", fontSize: 13, marginBottom: 12 }}>{error}</p>
-            )}
-            <Btn full onClick={() => resumeSession(recalled)}>
-              <Flame size={16} /> Conferir os sinais
-            </Btn>
-            <button onClick={() => { forgetSession(); setRecalled(null); setError(""); }}
-              style={{ display: "block", margin: "12px auto 0", color: C.muted, fontFamily: "Inter", fontSize: 12, cursor: "pointer" }}>
-              esquecer esta mesa
-            </button>
           </div>
         )}
 
@@ -688,6 +798,10 @@ export default function App() {
         <p style={{ textAlign: "center", color: "#5d5470", fontFamily: "Inter", fontSize: 11, marginTop: 24, lineHeight: 1.5 }}>
           As respostas ficam visíveis para todos que entrarem na mesma mesa.
         </p>
+        <div style={{ textAlign: "center", marginTop: 10 }}>
+          <button onClick={() => { setScreen("admin"); window.location.hash = "#admin"; }}
+            style={{ color: "#3f384e", fontFamily: "Inter", fontSize: 11, cursor: "pointer" }}>painel do administrador</button>
+        </div>
       </>
     );
   }
@@ -1060,6 +1174,89 @@ export default function App() {
           </p>
         )}
       </>
+    );
+  }
+
+  /* ----- ADMIN ----- */
+  if (screen === "admin") {
+    if (!adminUnlocked) {
+      return page(
+        <>
+          <Brand small />
+          <h2 style={{ fontFamily: "Cinzel, serif", color: C.text, fontSize: 22, margin: "26px 0 18px", textAlign: "center" }}>
+            Painel do administrador
+          </h2>
+          <Card>
+            <Field label="Senha de administrador" type="password" value={adminInput}
+              onChange={(e) => setAdminInput(e.target.value)} placeholder="********" />
+            {error && <p style={{ color: C.no, fontFamily: "Spectral, serif", fontSize: 13, marginTop: 10 }}>{error}</p>}
+            <div style={{ marginTop: 18 }}>
+              <Btn full onClick={() => {
+                if (adminInput === ADMIN_KEY) { setAdminUnlocked(true); setError(""); }
+                else setError("Senha incorreta.");
+              }}>Entrar</Btn>
+            </div>
+          </Card>
+        </>,
+        { back: () => { setScreen("home"); setError(""); window.location.hash = ""; } }
+      );
+    }
+    const cards = stats ? [
+      { label: "Mesas criadas", value: stats.total },
+      { label: "Datas fechadas", value: `${stats.closed} (${Math.round(stats.closeRate * 100)}%)` },
+      { label: "Tempo medio ate fechar", value: stats.timedCount ? fmtDuration(stats.avgCloseMs) : "—" },
+      { label: "Tamanho medio da mesa", value: stats.avgExpected ? stats.avgExpected.toFixed(1) : "—" },
+      { label: "Respostas por mesa (media)", value: stats.avgResponses.toFixed(1) },
+      { label: "Opcoes oferecidas (media)", value: stats.avgSlots.toFixed(1) },
+      { label: "Mesas (ultimos 7 dias)", value: stats.last7 },
+      { label: "Mesas (ultimos 30 dias)", value: stats.last30 },
+    ] : [];
+    const maxDay = stats ? Math.max(1, ...stats.days.map((d) => d.count)) : 1;
+    return page(
+      <>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
+          <h2 style={{ fontFamily: "Cinzel, serif", color: C.text, fontSize: 22 }}>Painel do administrador</h2>
+          <button onClick={loadStats} style={{ color: C.muted, display: "inline-flex", alignItems: "center", gap: 6, fontFamily: "Inter", fontSize: 12, cursor: "pointer" }}>
+            <RefreshCw size={14} /> atualizar
+          </button>
+        </div>
+        {ADMIN_KEY === "" && (
+          <div style={{ marginBottom: 14, padding: "10px 14px", borderRadius: 10, background: "rgba(217,154,60,.12)", border: `1px solid ${C.maybe}`, color: C.parchment, fontFamily: "Spectral, serif", fontSize: 13, lineHeight: 1.5 }}>
+            Sem senha definida. Crie a variavel VITE_ADMIN_KEY no Vercel para proteger este painel.
+          </div>
+        )}
+        {statsLoading || !stats ? (
+          <Card><p style={{ fontFamily: "Spectral, serif", color: C.muted, fontSize: 15 }}>Calculando...</p></Card>
+        ) : (
+          <>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10, marginBottom: 16 }}>
+              {cards.map((c) => (
+                <div key={c.label} style={{ background: C.inkSoft, border: `1px solid ${C.inkLine}`, borderRadius: 14, padding: 16 }}>
+                  <div style={{ fontFamily: "Cinzel, serif", color: C.gold, fontSize: 26 }}>{c.value}</div>
+                  <div style={{ fontFamily: "Inter", color: C.muted, fontSize: 12, marginTop: 4, lineHeight: 1.3 }}>{c.label}</div>
+                </div>
+              ))}
+            </div>
+            <Card>
+              <div style={{ fontFamily: "Inter", fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase", color: C.muted, marginBottom: 12 }}>
+                Mesas por dia (ultimos 14 dias)
+              </div>
+              <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 90 }}>
+                {stats.days.map((d) => (
+                  <div key={d.key} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                    <div style={{ width: "100%", height: `${(d.count / maxDay) * 70}px`, minHeight: d.count ? 4 : 0, background: C.gold, borderRadius: 3 }} />
+                    <span style={{ fontFamily: "Inter", fontSize: 9, color: C.muted }}>{d.label.slice(0, 2)}</span>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          </>
+        )}
+        <div style={{ marginTop: 20 }}>
+          <Btn variant="ghost" onClick={() => { setScreen("home"); window.location.hash = ""; }}>Voltar ao inicio</Btn>
+        </div>
+      </>,
+      { back: () => { setScreen("home"); window.location.hash = ""; } }
     );
   }
 
