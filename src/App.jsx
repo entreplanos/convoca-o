@@ -137,7 +137,7 @@ const partPrefix = (code) => `s:${code}:p:`;
 /* ============================ Componentes base ============================ */
 function Brand({ small }) {
   return (
-    <div className="flex items-center gap-3 justify-center">
+    <div style={{ display: "flex", alignItems: "center", gap: 12, justifyContent: "center" }}>
       <Dices size={small ? 22 : 30} style={{ color: C.gold }} />
       <h1
         style={{
@@ -260,7 +260,7 @@ function MonthPicker({ selected, onToggle }) {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-3">
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
         <button onClick={() => setView(new Date(year, month - 1, 1))}
           style={{ color: C.muted, padding: 6 }}><ChevronLeft size={20} /></button>
         <span style={{ fontFamily: "Cinzel, serif", color: C.text, fontSize: 15, textTransform: "capitalize" }}>
@@ -269,12 +269,12 @@ function MonthPicker({ selected, onToggle }) {
         <button onClick={() => setView(new Date(year, month + 1, 1))}
           style={{ color: C.muted, padding: 6 }}><ChevronRight size={20} /></button>
       </div>
-      <div className="grid grid-cols-7 gap-1 mb-1">
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4, marginBottom: 4 }}>
         {["D", "S", "T", "Q", "Q", "S", "S"].map((w, i) => (
           <div key={i} style={{ textAlign: "center", fontSize: 11, color: C.muted, fontFamily: "Inter" }}>{w}</div>
         ))}
       </div>
-      <div className="grid grid-cols-7 gap-1">
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4 }}>
         {cells.map((date, i) => {
           if (!date) return <div key={i} />;
           const iso = isoOf(date);
@@ -585,7 +585,7 @@ export default function App() {
         </p>
 
         <Card style={{ marginBottom: 14 }}>
-          <div className="flex items-center gap-3 mb-2">
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
             <Crown size={20} style={{ color: C.gold }} />
             <h2 style={{ fontFamily: "Cinzel, serif", color: C.text, fontSize: 17 }}>Sou o mestre</h2>
           </div>
@@ -598,7 +598,7 @@ export default function App() {
         </Card>
 
         <Card>
-          <div className="flex items-center gap-3 mb-2">
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
             <Users size={20} style={{ color: C.arcane }} />
             <h2 style={{ fontFamily: "Cinzel, serif", color: C.text, fontSize: 17 }}>Sou jogador</h2>
           </div>
@@ -771,7 +771,7 @@ export default function App() {
     const allAnswered = (meta.slots || []).every((s) => votes[s.id]);
     return page(
       <>
-        <div className="flex items-center justify-between" style={{ marginBottom: 18, flexWrap: "wrap", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18, flexWrap: "wrap", gap: 10 }}>
           <div>
             <div style={{ fontFamily: "Cinzel, serif", color: C.text, fontSize: 20 }}>{meta.campaign}</div>
             <div style={{ fontFamily: "Spectral, serif", color: C.muted, fontSize: 14 }}>
@@ -848,7 +848,7 @@ export default function App() {
 
     return page(
       <>
-        <div className="flex items-center justify-between" style={{ marginBottom: 6, flexWrap: "wrap", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6, flexWrap: "wrap", gap: 8 }}>
           <div style={{ fontFamily: "Cinzel, serif", color: C.text, fontSize: 20 }}>{meta.campaign}</div>
           <button onClick={refreshResults} style={{ color: C.muted, display: "inline-flex", alignItems: "center", gap: 6, fontFamily: "Inter", fontSize: 12 }}>
             <RefreshCw size={14} /> atualizar
@@ -903,7 +903,7 @@ export default function App() {
                 border: `1px solid ${isConfirmed ? C.yes : idx === 0 && !confirmedId ? C.goldDeep : C.inkLine}`,
                 borderRadius: 14, padding: "14px 16px",
               }}>
-                <div className="flex items-center justify-between" style={{ flexWrap: "wrap", gap: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
                   <div style={{ fontFamily: "Spectral, serif", color: C.text, fontSize: 16, textTransform: "capitalize" }}>
                     {slotLabel(r.slot)}
                     {r.full && <span style={{ color: C.yes, fontSize: 13, marginLeft: 8 }}>✦ cheio</span>}
