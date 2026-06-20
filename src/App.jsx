@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   Dices, Crown, Check, X, HelpCircle, Copy, Users, Sparkles,
-  ChevronLeft, ChevronRight, Swords, ScrollText, ArrowLeft, RefreshCw, Stamp, CalendarDays, CalendarPlus, Download
+  ChevronLeft, ChevronRight, Swords, ScrollText, ArrowLeft, RefreshCw, Stamp, CalendarDays, CalendarPlus, Download, Flame
 } from "lucide-react";
 import { store } from "./store";
 
@@ -133,6 +133,23 @@ const downloadIcs = (meta, slot) => {
 const metaKey = (code) => `s:${code}:meta`;
 const partKey = (code, slug) => `s:${code}:p:${slug}`;
 const partPrefix = (code) => `s:${code}:p:`;
+
+/* ---- memoria local: lembrar a ultima mesa (so no app publicado) ---- */
+const LAST_KEY = "convocacao:last";
+const recallSession = () => {
+  try {
+    const raw = window.localStorage.getItem(LAST_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+};
+const rememberSession = (data) => {
+  try { window.localStorage.setItem(LAST_KEY, JSON.stringify(data)); } catch {}
+};
+const forgetSession = () => {
+  try { window.localStorage.removeItem(LAST_KEY); } catch {}
+};
 
 /* ============================ Componentes base ============================ */
 function Brand({ small }) {
@@ -390,6 +407,7 @@ export default function App() {
   const [saved, setSaved] = useState(false);
   const [copied, setCopied] = useState(false);
   const [degraded, setDegraded] = useState(false);
+  const [recalled, setRecalled] = useState(() => recallSession());
   const syncDegraded = () => setDegraded(store.isDegraded());
 
   const pollRef = useRef(null);
@@ -457,6 +475,8 @@ export default function App() {
     setCode(c);
     setMeta(m);
     setMe({ slug: m.gmSlug, name: m.gm });
+    rememberSession({ code: c, name: m.gm, isGM: true, campaign: m.campaign });
+    setRecalled({ code: c, name: m.gm, isGM: true, campaign: m.campaign });
     setVotes({});
     setSaved(false);
     await loadParticipants(c);
@@ -481,6 +501,8 @@ export default function App() {
     setCode(c);
     setMeta(m);
     setMe({ slug, name: joinName.trim() });
+    rememberSession({ code: c, name: joinName.trim(), isGM: slug === m.gmSlug, campaign: m.campaign });
+    setRecalled({ code: c, name: joinName.trim(), isGM: slug === m.gmSlug, campaign: m.campaign });
     setVotes(existing?.votes || {});
     setSaved(!!existing);
     await loadParticipants(c);
@@ -494,6 +516,8 @@ export default function App() {
     syncDegraded();
     if (ok) {
       setSaved(true);
+      rememberSession({ code, name: me.name, isGM, campaign: meta.campaign });
+      setRecalled({ code, name: me.name, isGM, campaign: meta.campaign });
       await loadParticipants(code);
       setScreen("results");
     } else {
@@ -512,6 +536,25 @@ export default function App() {
     navigator.clipboard?.writeText(code);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
+  };
+
+  const resumeSession = async (r) => {
+    setError("");
+    const m = await store.get(metaKey(r.code));
+    syncDegraded();
+    if (!m) {
+      setError("Sua mesa anterior nao foi encontrada — pode ter sido removida.");
+      return;
+    }
+    const slug = slugify(r.name);
+    const existing = await store.get(partKey(r.code, slug));
+    setCode(r.code);
+    setMeta(m);
+    setMe({ slug, name: r.name });
+    setVotes(existing?.votes || {});
+    setSaved(!!existing);
+    await loadParticipants(r.code);
+    setScreen("results");
   };
 
   const resetHome = () => {
@@ -583,6 +626,33 @@ export default function App() {
         <p style={{ textAlign: "center", color: C.muted, fontFamily: "Spectral, serif", fontStyle: "italic", fontSize: 16, lineHeight: 1.5, margin: "14px auto 30px", maxWidth: 420 }}>
           Os sinais de fogo estão acesos: o mestre convoca, e — como Gondor — a mesa responderá ao chamado. Resta o verdadeiro inimigo, que não é dragão nenhum: achar uma data livre na agenda de todos.
         </p>
+
+        {recalled && (
+          <div style={{ background: C.inkSoft, border: `1px solid ${C.gold}`, borderRadius: 16, padding: 18, marginBottom: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+              <Flame size={18} style={{ color: C.gold }} />
+              <span style={{ fontFamily: "Inter", fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", color: C.gold }}>
+                {recalled.isGM ? "Sua mesa" : "Mesa que voce atendeu"}
+              </span>
+            </div>
+            <div style={{ fontFamily: "Cinzel, serif", color: C.text, fontSize: 18, marginBottom: 2 }}>
+              {recalled.campaign}
+            </div>
+            <div style={{ fontFamily: "Spectral, serif", color: C.muted, fontSize: 13, marginBottom: 14 }}>
+              codigo <strong style={{ color: C.gold, letterSpacing: "0.15em" }}>{recalled.code}</strong>
+            </div>
+            {error && (
+              <p style={{ color: C.no, fontFamily: "Spectral, serif", fontSize: 13, marginBottom: 12 }}>{error}</p>
+            )}
+            <Btn full onClick={() => resumeSession(recalled)}>
+              <Flame size={16} /> Conferir os sinais
+            </Btn>
+            <button onClick={() => { forgetSession(); setRecalled(null); setError(""); }}
+              style={{ display: "block", margin: "12px auto 0", color: C.muted, fontFamily: "Inter", fontSize: 12, cursor: "pointer" }}>
+              esquecer esta mesa
+            </button>
+          </div>
+        )}
 
         <Card style={{ marginBottom: 14 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
