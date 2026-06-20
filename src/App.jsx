@@ -396,6 +396,7 @@ export default function App() {
   const [picked, setPicked] = useState([]);
   const [times, setTimes] = useState({}); // { "2026-06-25": ["20:00", ...] }
   const [durationHours, setDurationHours] = useState(3);
+  const [tableSize, setTableSize] = useState(5);
   const [customTime, setCustomTime] = useState({}); // { date: "HH:MM" }
 
   // entrada
@@ -463,6 +464,7 @@ export default function App() {
       gmSlug: slugify(gmName),
       slots,
       durationHours,
+      expectedCount: tableSize,
       createdAt: Date.now(),
       confirmedSlot: null,
     };
@@ -560,15 +562,18 @@ export default function App() {
   const resetHome = () => {
     setScreen("home");
     setError("");
-    setCampaign(""); setGmName(""); setPicked([]); setTimes({}); setDurationHours(3); setCustomTime({});
+    setCampaign(""); setGmName(""); setPicked([]); setTimes({}); setDurationHours(3); setCustomTime({}); setTableSize(5);
     setJoinCode(""); setJoinName("");
     setCode(""); setMeta(null); setParticipants([]); setMe(null); setVotes({});
   };
 
   /* ---- cálculo de resultados ---- */
   const computeRanking = () => {
-    if (!meta) return { rows: [], total: 0 };
+    if (!meta) return { rows: [], total: 0, expected: 0, denom: 0, pending: 0 };
     const total = participants.length;
+    const expected = meta.expectedCount || 0;
+    const denom = expected > 0 ? Math.max(expected, total) : total;
+    const pending = expected > 0 ? Math.max(0, expected - total) : 0;
     const rows = (meta.slots || []).map((slot) => {
       let yes = 0, maybe = 0, no = 0;
       participants.forEach((p) => {
@@ -579,14 +584,14 @@ export default function App() {
       });
       const none = total - yes - maybe - no;
       const weighted = yes + 0.5 * maybe;
-      const pct = total ? weighted / total : 0;
-      const full = total > 0 && yes === total;
+      const pct = denom ? weighted / denom : 0;
+      const full = denom > 0 && yes === denom;
       return { slot, yes, maybe, no, none, weighted, pct, full };
     });
     rows.sort((a, b) =>
       b.yes - a.yes || b.weighted - a.weighted || a.slot.id.localeCompare(b.slot.id)
     );
-    return { rows, total };
+    return { rows, total, expected, denom, pending };
   };
 
   const isGM = me && meta && me.slug === meta.gmSlug;
@@ -779,6 +784,23 @@ export default function App() {
 
             <div>
               <span style={{ fontFamily: "Inter", fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase", color: C.muted }}>
+                Tamanho da mesa (você incluído)
+              </span>
+              <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 10 }}>
+                <button onClick={() => setTableSize((n) => Math.max(2, n - 1))}
+                  style={{ width: 40, height: 40, borderRadius: 10, border: `1px solid ${C.inkLine}`, color: C.text, fontFamily: "Inter", fontSize: 20, cursor: "pointer", background: "transparent" }}>-</button>
+                <span style={{ fontFamily: "Cinzel, serif", color: C.text, fontSize: 24, minWidth: 36, textAlign: "center" }}>{tableSize}</span>
+                <button onClick={() => setTableSize((n) => Math.min(12, n + 1))}
+                  style={{ width: 40, height: 40, borderRadius: 10, border: `1px solid ${C.inkLine}`, color: C.text, fontFamily: "Inter", fontSize: 20, cursor: "pointer", background: "transparent" }}>+</button>
+                <span style={{ fontFamily: "Spectral, serif", color: C.muted, fontSize: 14 }}>pessoas</span>
+              </div>
+              <p style={{ fontFamily: "Spectral, serif", color: C.muted, fontSize: 13, margin: "8px 0 0", lineHeight: 1.4 }}>
+                Quando as {tableSize} responderem, o app fecha o veredito. Você ainda pode marcar antes, se quiser.
+              </p>
+            </div>
+
+            <div>
+              <span style={{ fontFamily: "Inter", fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase", color: C.muted }}>
                 Duração da sessão (para o evento no calendário)
               </span>
               <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
@@ -890,7 +912,7 @@ export default function App() {
 
   /* ----- RESULTS ----- */
   if (screen === "results" && meta) {
-    const { rows, total } = computeRanking();
+    const { rows, total, expected, denom, pending } = computeRanking();
     const best = rows[0];
     const fullMatches = rows.filter((r) => r.full);
     const confirmedId = meta.confirmedSlot;
@@ -926,7 +948,11 @@ export default function App() {
         </div>
         <div style={{ fontFamily: "Spectral, serif", color: C.muted, fontSize: 14, marginBottom: 18 }}>
           <Users size={14} style={{ display: "inline", verticalAlign: "-2px", marginRight: 6 }} />
-          {total} resposta{total === 1 ? "" : "s"} na mesa · código <strong style={{ color: C.gold, letterSpacing: "0.15em" }}>{code}</strong>
+          {expected > 0 ? (
+            <>{total} de {expected} responderam{pending > 0 ? ` · faltam ${pending}` : ""}</>
+          ) : (
+            <>{total} {total === 1 ? "resposta" : "respostas"} na mesa</>
+          )} · código <strong style={{ color: C.gold, letterSpacing: "0.15em" }}>{code}</strong>
         </div>
 
         {/* Veredito */}
@@ -941,9 +967,9 @@ export default function App() {
             {calButtons(confirmedSlot)}
           </div>
         ) : best && total > 0 ? (
-          <div style={{ background: C.inkSoft, border: `1px solid ${fullMatches.length ? C.yes : C.gold}`, borderRadius: 16, padding: 22, marginBottom: 20 }}>
-            <div style={{ display: "inline-flex", alignItems: "center", gap: 8, color: fullMatches.length ? C.yes : C.gold, fontFamily: "Inter", fontWeight: 700, fontSize: 12, letterSpacing: "0.16em" }}>
-              <Sparkles size={15} /> {fullMatches.length ? "TODOS DISPONÍVEIS" : "OPÇÃO MAIS PROVÁVEL"}
+          <div style={{ background: C.inkSoft, border: `1px solid ${pending === 0 && fullMatches.length ? C.yes : C.gold}`, borderRadius: 16, padding: 22, marginBottom: 20 }}>
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 8, color: pending === 0 && fullMatches.length ? C.yes : C.gold, fontFamily: "Inter", fontWeight: 700, fontSize: 12, letterSpacing: "0.16em" }}>
+              <Sparkles size={15} /> {pending > 0 ? "MELHOR ATÉ AGORA" : fullMatches.length ? "TODOS DISPONÍVEIS" : "OPÇÃO MAIS PROVÁVEL"}
             </div>
             <div style={{ fontFamily: "Cinzel, serif", color: C.text, fontSize: 22, marginTop: 8, textTransform: "capitalize" }}>
               {slotLong(best.slot)}
@@ -952,7 +978,9 @@ export default function App() {
               {best.yes} confirmado{best.yes === 1 ? "" : "s"}
               {best.maybe ? ` · ${best.maybe} talvez` : ""}
               {best.no ? ` · ${best.no} fora` : ""}
-              {!fullMatches.length && " — nada fechou com todos, decisão do mestre."}
+              {pending > 0
+                ? ` — faltam ${pending} responder antes de fechar.`
+                : !fullMatches.length && " — nada fechou com todos, decisão do mestre."}
             </div>
           </div>
         ) : (
@@ -979,15 +1007,15 @@ export default function App() {
                     {r.full && <span style={{ color: C.yes, fontSize: 13, marginLeft: 8 }}>✦ cheio</span>}
                   </div>
                   <div style={{ fontFamily: "Inter", fontSize: 13, color: C.muted }}>
-                    {Math.round(r.pct * 100)}% · {r.yes}/{total || 0}
+                    {Math.round(r.pct * 100)}% · {r.yes}/{denom || 0}
                   </div>
                 </div>
 
                 {/* barra */}
                 <div style={{ height: 8, background: C.ink, borderRadius: 6, overflow: "hidden", marginTop: 10, display: "flex" }}>
-                  {total > 0 && <>
-                    <div style={{ width: `${(r.yes / total) * 100}%`, background: C.yes }} />
-                    <div style={{ width: `${(r.maybe / total) * 100}%`, background: C.maybe }} />
+                  {denom > 0 && <>
+                    <div style={{ width: `${(r.yes / denom) * 100}%`, background: C.yes }} />
+                    <div style={{ width: `${(r.maybe / denom) * 100}%`, background: C.maybe }} />
                   </>}
                 </div>
 
