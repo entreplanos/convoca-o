@@ -854,11 +854,11 @@ export default function App() {
           <p style={{ color: C.muted, fontFamily: "Spectral, serif", fontSize: 14, marginBottom: 12, lineHeight: 1.5 }}>
             Tem o código de uma mesa? Veja o status dela sem precisar votar.
           </p>
-          <div style={{ display: "flex", gap: 8 }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <input value={trackCode} onChange={(e) => setTrackCode(e.target.value.toUpperCase())}
               placeholder="CÓDIGO" maxLength={4}
-              style={{ flex: 1, background: C.ink, border: `1px solid ${C.inkLine}`, borderRadius: 10, padding: "11px 13px", color: C.text, fontFamily: "Inter", fontWeight: 700, letterSpacing: "0.25em", fontSize: 18, outline: "none" }} />
-            <Btn variant="arcane" onClick={() => trackByCode(trackCode)}>Ver status</Btn>
+              style={{ flex: "1 1 140px", minWidth: 0, background: C.ink, border: `1px solid ${C.inkLine}`, borderRadius: 10, padding: "11px 13px", color: C.text, fontFamily: "Inter", fontWeight: 700, letterSpacing: "0.25em", fontSize: 18, outline: "none" }} />
+            <Btn variant="arcane" onClick={() => trackByCode(trackCode)} style={{ flex: "0 0 auto" }}>Ver status</Btn>
           </div>
           {error && <p style={{ color: C.no, fontFamily: "Spectral, serif", fontSize: 13, marginTop: 10 }}>{error}</p>}
         </Card>
