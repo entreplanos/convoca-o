@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   Dices, Crown, Check, X, HelpCircle, Copy, Users, Sparkles,
-  ChevronLeft, ChevronRight, Swords, ScrollText, ArrowLeft, RefreshCw, Stamp, CalendarDays, CalendarPlus, Download, Flame
+  ChevronLeft, ChevronRight, Swords, ScrollText, ArrowLeft, RefreshCw, Stamp, CalendarDays, CalendarPlus, Download, Flame, Search, Bell, BellRing
 } from "lucide-react";
 import { store } from "./store";
 
@@ -165,6 +165,14 @@ const forgetSession = (code, name) => {
 
 /* ---- chave do painel de admin (definida em VITE_ADMIN_KEY) ---- */
 const ADMIN_KEY = (() => { try { return import.meta.env.VITE_ADMIN_KEY || ""; } catch { return ""; } })();
+
+const notifyComplete = (campaign) => {
+  try {
+    if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+      new Notification("Convocação · mesa completa", { body: `Todos responderam em "${campaign}". Hora de marcar a data!` });
+    }
+  } catch {}
+};
 
 /* ============================ Componentes base ============================ */
 function Brand({ small }) {
@@ -431,9 +439,12 @@ export default function App() {
   const [adminInput, setAdminInput] = useState("");
   const [stats, setStats] = useState(null);
   const [statsLoading, setStatsLoading] = useState(false);
+  const [notifyOn, setNotifyOn] = useState(false);
+  const [trackCode, setTrackCode] = useState("");
   const syncDegraded = () => setDegraded(store.isDegraded());
 
   const pollRef = useRef(null);
+  const prevCompleteRef = useRef(null);
 
   const loadParticipants = useCallback(async (c) => {
     const keys = await store.list(partPrefix(c));
@@ -450,13 +461,24 @@ export default function App() {
     if (!code) return;
     const m = await store.get(metaKey(code));
     if (m) setMeta(m);
-    await loadParticipants(code);
+    const list = await loadParticipants(code);
     syncDegraded();
-  }, [code, loadParticipants]);
+    const expected = (m && m.expectedCount) || 0;
+    const complete = expected > 0 && list.length >= expected;
+    if (prevCompleteRef.current === null) {
+      prevCompleteRef.current = complete;
+    } else if (complete && !prevCompleteRef.current) {
+      if (notifyOn) notifyComplete(m.campaign);
+      prevCompleteRef.current = complete;
+    } else {
+      prevCompleteRef.current = complete;
+    }
+  }, [code, loadParticipants, notifyOn]);
 
   /* polling enquanto vê resultados */
   useEffect(() => {
     if (screen === "results" && code) {
+      prevCompleteRef.current = null;
       refreshResults();
       pollRef.current = setInterval(refreshResults, 4000);
       return () => clearInterval(pollRef.current);
@@ -643,6 +665,35 @@ export default function App() {
     setTimeout(() => setCopied(false), 1500);
   };
 
+  const enableNotify = async () => {
+    setError("");
+    try {
+      if (typeof Notification === "undefined") { setError("Seu navegador não suporta notificações."); return; }
+      const perm = Notification.permission === "granted" ? "granted" : await Notification.requestPermission();
+      if (perm === "granted") setNotifyOn(true);
+      else setError("Permissão de notificação negada — ative nas configurações do navegador.");
+    } catch {}
+  };
+
+  const trackByCode = async (raw) => {
+    setError("");
+    const c = (raw || "").trim().toUpperCase();
+    if (!c) return;
+    const known = myMesas.find((x) => x.code === c);
+    if (known) { setTrackCode(""); resumeSession(known); return; }
+    const m = await store.get(metaKey(c));
+    syncDegraded();
+    if (!m) { setError("Nenhuma mesa encontrada com esse código."); return; }
+    setCode(c);
+    setMeta(m);
+    setMe(null);
+    setVotes({});
+    setSaved(false);
+    setTrackCode("");
+    await loadParticipants(c);
+    setScreen("results");
+  };
+
   const resumeSession = async (r) => {
     setError("");
     const m = await store.get(metaKey(r.code));
@@ -793,6 +844,23 @@ export default function App() {
           <Btn full variant="arcane" onClick={() => setScreen("join")}>
             <ScrollText size={16} /> Entrar com código
           </Btn>
+        </Card>
+
+        <Card style={{ marginTop: 14 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+            <Search size={18} style={{ color: C.arcane }} />
+            <h2 style={{ fontFamily: "Cinzel, serif", color: C.text, fontSize: 16 }}>Acompanhar uma mesa</h2>
+          </div>
+          <p style={{ color: C.muted, fontFamily: "Spectral, serif", fontSize: 14, marginBottom: 12, lineHeight: 1.5 }}>
+            Tem o código de uma mesa? Veja o status dela sem precisar votar.
+          </p>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input value={trackCode} onChange={(e) => setTrackCode(e.target.value.toUpperCase())}
+              placeholder="CÓDIGO" maxLength={4}
+              style={{ flex: 1, background: C.ink, border: `1px solid ${C.inkLine}`, borderRadius: 10, padding: "11px 13px", color: C.text, fontFamily: "Inter", fontWeight: 700, letterSpacing: "0.25em", fontSize: 18, outline: "none" }} />
+            <Btn variant="arcane" onClick={() => trackByCode(trackCode)}>Ver status</Btn>
+          </div>
+          {error && <p style={{ color: C.no, fontFamily: "Spectral, serif", fontSize: 13, marginTop: 10 }}>{error}</p>}
         </Card>
 
         <p style={{ textAlign: "center", color: "#5d5470", fontFamily: "Inter", fontSize: 11, marginTop: 24, lineHeight: 1.5 }}>
@@ -1056,9 +1124,15 @@ export default function App() {
       <>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6, flexWrap: "wrap", gap: 8 }}>
           <div style={{ fontFamily: "Cinzel, serif", color: C.text, fontSize: 20 }}>{meta.campaign}</div>
-          <button onClick={refreshResults} style={{ color: C.muted, display: "inline-flex", alignItems: "center", gap: 6, fontFamily: "Inter", fontSize: 12 }}>
-            <RefreshCw size={14} /> atualizar
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+            <button onClick={enableNotify} title="Avisar quando a mesa completar"
+              style={{ color: notifyOn ? C.gold : C.muted, display: "inline-flex", alignItems: "center", gap: 6, fontFamily: "Inter", fontSize: 12, cursor: "pointer" }}>
+              {notifyOn ? <BellRing size={14} /> : <Bell size={14} />} {notifyOn ? "aviso ligado" : "avisar"}
+            </button>
+            <button onClick={refreshResults} style={{ color: C.muted, display: "inline-flex", alignItems: "center", gap: 6, fontFamily: "Inter", fontSize: 12, cursor: "pointer" }}>
+              <RefreshCw size={14} /> atualizar
+            </button>
+          </div>
         </div>
         <div style={{ fontFamily: "Spectral, serif", color: C.muted, fontSize: 14, marginBottom: 18 }}>
           <Users size={14} style={{ display: "inline", verticalAlign: "-2px", marginRight: 6 }} />
@@ -1163,9 +1237,11 @@ export default function App() {
         </div>
 
         <div style={{ marginTop: 22, display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <Btn variant="ghost" onClick={() => setScreen("respond")}>
-            <CalendarDays size={15} /> Editar minha disponibilidade
-          </Btn>
+          {me && (
+            <Btn variant="ghost" onClick={() => setScreen("respond")}>
+              <CalendarDays size={15} /> Editar minha disponibilidade
+            </Btn>
+          )}
           <Btn variant="ghost" onClick={resetHome}>Sair</Btn>
         </div>
         {!isGM && (
