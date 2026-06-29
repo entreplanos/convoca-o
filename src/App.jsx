@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   Dices, Crown, Check, X, HelpCircle, Copy, Users, Sparkles,
   ChevronLeft, ChevronRight, Swords, ScrollText, ArrowLeft, RefreshCw, Stamp, CalendarDays, CalendarPlus, Download, Flame, Search, Bell, BellRing
@@ -177,6 +177,53 @@ const notifyComplete = (campaign) => {
 };
 
 /* ============================ Componentes base ============================ */
+/* ============================ Fundo de runas ============================ */
+const RUNE_PATHS = [
+  "M8 3 V21 M8 6 L16 3 M8 11 L16 8",
+  "M8 3 V21 M8 3 L16 9 V21",
+  "M9 3 V21 M9 9 L15 12 L9 15",
+  "M8 3 V21 M8 6 L15 9 M8 12 L15 15",
+  "M15 3 L8 12 L15 21",
+  "M6 4 L18 20 M18 4 L6 20",
+  "M8 3 V21 M8 3 L15 7 L8 11",
+  "M7 3 V21 M17 3 V21 M7 10 L17 14",
+  "M9 4 V20 M5 14 L19 10",
+  "M16 3 L9 9 L15 15 L8 21",
+  "M12 3 V21 M12 3 L17 8 M12 3 L7 8",
+  "M12 3 V21 M12 10 L6 4 M12 10 L18 4",
+];
+
+function RuneField({ count = 14 }) {
+  const runes = useMemo(() => {
+    const out = [];
+    for (let i = 0; i < count; i++) {
+      out.push({
+        id: i,
+        d: RUNE_PATHS[Math.floor(Math.random() * RUNE_PATHS.length)],
+        left: Math.random() * 96 + 2,
+        top: Math.random() * 96 + 2,
+        size: 22 + Math.random() * 46,
+        dur: 8 + Math.random() * 9,
+        delay: -Math.random() * 17,
+        rot: -22 + Math.random() * 44,
+        peak: 0.07 + Math.random() * 0.11,
+      });
+    }
+    return out;
+  }, [count]);
+  return (
+    <div aria-hidden="true" style={{ position: "fixed", inset: 0, overflow: "hidden", pointerEvents: "none", zIndex: 0 }}>
+      <style>{"@keyframes runeGlow{0%,100%{opacity:0}50%{opacity:var(--peak,0.12)}}@media (prefers-reduced-motion: reduce){.rune{animation:none !important;opacity:0.06 !important}}"}</style>
+      {runes.map((r) => (
+        <svg key={r.id} className="rune" viewBox="0 0 24 24" width={r.size} height={r.size}
+          style={{ position: "absolute", left: `${r.left}%`, top: `${r.top}%`, transform: `rotate(${r.rot}deg)`, opacity: 0, ["--peak"]: r.peak, animation: `runeGlow ${r.dur}s ease-in-out ${r.delay}s infinite` }}>
+          <path d={r.d} fill="none" stroke="#e0a458" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      ))}
+    </div>
+  );
+}
+
 function Brand({ small }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 12, justifyContent: "center" }}>
@@ -754,8 +801,9 @@ export default function App() {
 
   /* ============================ Render ============================ */
   const page = (children, { back } = {}) => (
-    <div style={{ minHeight: "100vh", background: C.ink, padding: "28px 16px 60px" }}>
-      <div style={{ maxWidth: 560, margin: "0 auto" }}>
+    <div style={{ minHeight: "100vh", background: C.ink, padding: "28px 16px 60px", position: "relative" }}>
+      <RuneField />
+      <div style={{ maxWidth: 560, margin: "0 auto", position: "relative", zIndex: 1 }}>
         {degraded && (
           <div style={{ marginBottom: 16, padding: "10px 14px", borderRadius: 10, background: "rgba(217,154,60,.12)", border: `1px solid ${C.maybe}`, color: C.parchment, fontFamily: "Spectral, serif", fontSize: 13, lineHeight: 1.5 }}>
             {store.degradedReason()}
