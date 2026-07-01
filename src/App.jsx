@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   Dices, Crown, Check, X, HelpCircle, Copy, Users, Sparkles,
-  ChevronLeft, ChevronRight, Swords, ScrollText, ArrowLeft, RefreshCw, Stamp, CalendarDays, CalendarPlus, Download, Flame, Search, Bell, BellRing
+  ChevronLeft, ChevronRight, Swords, ScrollText, ArrowLeft, RefreshCw, Stamp, CalendarDays, CalendarPlus, Download, Flame, Search, Bell, BellRing, Instagram, Facebook
 } from "lucide-react";
 import { store } from "./store";
 
@@ -910,6 +910,25 @@ export default function App() {
         <p style={{ textAlign: "center", color: "#5d5470", fontFamily: "Inter", fontSize: 11, marginTop: 24, lineHeight: 1.5 }}>
           As respostas ficam visíveis para todos que entrarem na mesma mesa.
         </p>
+        <div style={{ textAlign: "center", marginTop: 20 }}>
+          <div style={{ fontFamily: "Inter", fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", color: "#5d5470", marginBottom: 8 }}>
+            Entre Planos nas redes
+          </div>
+          <div style={{ display: "flex", justifyContent: "center", gap: 18 }}>
+            <a href="https://www.instagram.com/entreplanosrpg/" target="_blank" rel="noopener noreferrer" aria-label="Instagram"
+              style={{ color: C.muted, display: "inline-flex" }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = C.gold)}
+              onMouseLeave={(e) => (e.currentTarget.style.color = C.muted)}>
+              <Instagram size={22} />
+            </a>
+            <a href="https://www.facebook.com/profile.php?id=61591401786656" target="_blank" rel="noopener noreferrer" aria-label="Facebook"
+              style={{ color: C.muted, display: "inline-flex" }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = C.gold)}
+              onMouseLeave={(e) => (e.currentTarget.style.color = C.muted)}>
+              <Facebook size={22} />
+            </a>
+          </div>
+        </div>
         <div style={{ textAlign: "center", marginTop: 10 }}>
           <button onClick={() => { setScreen("admin"); window.location.hash = "#admin"; }}
             style={{ color: "#3f384e", fontFamily: "Inter", fontSize: 11, cursor: "pointer" }}>painel do administrador</button>
